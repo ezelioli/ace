@@ -19,25 +19,30 @@ module ace_ccu_top
 #(
   parameter ace_pkg::ccu_cfg_t Cfg = '0,
   parameter bit  ATOPs             = 1'b1,
-  parameter type slv_aw_chan_t     = logic,
-  parameter type mst_aw_chan_t     = logic,
-  parameter type mst_stg_aw_chan_t = logic,
+  // AXI/ACE W channel type (same for ACE/AXI slaves/masters)
   parameter type w_chan_t          = logic,
-  parameter type slv_b_chan_t      = logic,
-  parameter type mst_b_chan_t      = logic,
-  parameter type mst_stg_b_chan_t  = logic,
+  // ACE slave ports types
   parameter type slv_ar_chan_t     = logic,
-  parameter type mst_ar_chan_t     = logic,
-  parameter type mst_stg_ar_chan_t = logic,
   parameter type slv_r_chan_t      = logic,
-  parameter type mst_r_chan_t      = logic,
-  parameter type mst_stg_r_chan_t  = logic,
+  parameter type slv_aw_chan_t     = logic,
+  parameter type slv_b_chan_t      = logic,
   parameter type slv_req_t         = logic,
   parameter type slv_resp_t        = logic,
-  parameter type mst_req_t         = logic,
-  parameter type mst_resp_t        = logic,
+  // ACE MUXed master ports types
+  parameter type mst_stg_ar_chan_t = logic,
+  parameter type mst_stg_r_chan_t  = logic,
+  parameter type mst_stg_aw_chan_t = logic,
+  parameter type mst_stg_b_chan_t  = logic,
   parameter type mst_stg_req_t     = logic,
   parameter type mst_stg_resp_t    = logic,
+  // AXI master ports types
+  parameter type mst_ar_chan_t     = logic,
+  parameter type mst_r_chan_t      = logic,
+  parameter type mst_aw_chan_t     = logic,
+  parameter type mst_b_chan_t      = logic,
+  parameter type mst_req_t         = logic,
+  parameter type mst_resp_t        = logic,
+  // ACE snoop ports types
   parameter type snoop_req_t       = logic,
   parameter type snoop_resp_t      = logic
 
@@ -45,12 +50,15 @@ module ace_ccu_top
   input  logic                             clk_i,
   input  logic                             rst_ni,
   input  logic                             test_i,
+  // ACE slave ports from cores
   input  slv_req_t    [Cfg.NoSlvPorts-1:0] slv_ports_req_i,
   output slv_resp_t   [Cfg.NoSlvPorts-1:0] slv_ports_resp_o,
+  // ACE snoop ports to cores
   output snoop_req_t  [Cfg.NoSlvPorts-1:0] slv_snp_req_o,
   input  snoop_resp_t [Cfg.NoSlvPorts-1:0] slv_snp_resp_i,
-  output mst_req_t                         mst_ports_req_o,
-  input  mst_resp_t                        mst_ports_resp_i
+  // AXI master ports to AXI xbar (one per slave + CCU unit one)
+  output mst_req_t      [Cfg.NoSlvPorts:0] mst_ports_req_o,
+  input  mst_resp_t     [Cfg.NoSlvPorts:0] mst_ports_resp_i
 );
 
 // signals from the ace_demuxes
@@ -118,38 +126,43 @@ for (genvar i = 0; i < Cfg.NoSlvPorts; i++) begin : gen_slv_port_demux
     );
 end
 
-axi_mux #(
-  .SlvAxiIDWidth ( Cfg.AxiIdWidthSlvPorts+$clog2(Cfg.NoSlvPorts) ), // ID width of the slave ports
-  .slv_aw_chan_t ( mst_stg_aw_chan_t      ), // AW Channel Type, slave ports
-  .mst_aw_chan_t ( mst_aw_chan_t          ), // AW Channel Type, master port
-  .w_chan_t      ( w_chan_t               ), //  W Channel Type, all ports
-  .slv_b_chan_t  ( mst_stg_b_chan_t       ), //  B Channel Type, slave ports
-  .mst_b_chan_t  ( mst_b_chan_t           ), //  B Channel Type, master port
-  .slv_ar_chan_t ( mst_stg_ar_chan_t      ), // AR Channel Type, slave ports
-  .mst_ar_chan_t ( mst_ar_chan_t          ), // AR Channel Type, master port
-  .slv_r_chan_t  ( mst_stg_r_chan_t       ), //  R Channel Type, slave ports
-  .mst_r_chan_t  ( mst_r_chan_t           ), //  R Channel Type, master port
-  .slv_req_t     ( mst_stg_req_t          ),
-  .slv_resp_t    ( mst_stg_resp_t         ),
-  .mst_req_t     ( mst_req_t              ),
-  .mst_resp_t    ( mst_resp_t             ),
-  .NoSlvPorts    ( Cfg.NoSlvPorts + 1     ), // Number of Masters for the modules
-  .MaxWTrans     ( Cfg.MaxMstTrans        ),
-  .FallThrough   ( Cfg.FallThrough        ),
-  .SpillAw       ( Cfg.LatencyMode[4]     ),
-  .SpillW        ( Cfg.LatencyMode[3]     ),
-  .SpillB        ( Cfg.LatencyMode[2]     ),
-  .SpillAr       ( Cfg.LatencyMode[1]     ),
-  .SpillR        ( Cfg.LatencyMode[0]     )
-) i_axi_mux (
-  .clk_i,   // Clock
-  .rst_ni,  // Asynchronous reset active low
-  .test_i,  // Test Mode enable
-  .slv_reqs_i  ( mst_reqs         ),
-  .slv_resps_o ( mst_resps        ),
-  .mst_req_o   ( mst_ports_req_o  ),
-  .mst_resp_i  ( mst_ports_resp_i )
-);
+for (genvar i = 0; i <= Cfg.NoSlvPorts; ++i) begin
+  `AXI_ASSIGN_REQ_STRUCT(mst_ports_req_o[i], mst_reqs[i])
+  `ACE_ASSIGN_RESP_STRUCT(mst_resps[i], mst_ports_resp_o[i])
+end
+
+// axi_mux #(
+//   .SlvAxiIDWidth ( Cfg.AxiIdWidthSlvPorts+$clog2(Cfg.NoSlvPorts) ), // ID width of the slave ports
+//   .slv_aw_chan_t ( mst_stg_aw_chan_t      ), // AW Channel Type, slave ports
+//   .mst_aw_chan_t ( mst_aw_chan_t          ), // AW Channel Type, master port
+//   .w_chan_t      ( w_chan_t               ), //  W Channel Type, all ports
+//   .slv_b_chan_t  ( mst_stg_b_chan_t       ), //  B Channel Type, slave ports
+//   .mst_b_chan_t  ( mst_b_chan_t           ), //  B Channel Type, master port
+//   .slv_ar_chan_t ( mst_stg_ar_chan_t      ), // AR Channel Type, slave ports
+//   .mst_ar_chan_t ( mst_ar_chan_t          ), // AR Channel Type, master port
+//   .slv_r_chan_t  ( mst_stg_r_chan_t       ), //  R Channel Type, slave ports
+//   .mst_r_chan_t  ( mst_r_chan_t           ), //  R Channel Type, master port
+//   .slv_req_t     ( mst_stg_req_t          ),
+//   .slv_resp_t    ( mst_stg_resp_t         ),
+//   .mst_req_t     ( mst_req_t              ),
+//   .mst_resp_t    ( mst_resp_t             ),
+//   .NoSlvPorts    ( Cfg.NoSlvPorts + 1     ), // Number of Masters for the modules
+//   .MaxWTrans     ( Cfg.MaxMstTrans        ),
+//   .FallThrough   ( Cfg.FallThrough        ),
+//   .SpillAw       ( Cfg.LatencyMode[4]     ),
+//   .SpillW        ( Cfg.LatencyMode[3]     ),
+//   .SpillB        ( Cfg.LatencyMode[2]     ),
+//   .SpillAr       ( Cfg.LatencyMode[1]     ),
+//   .SpillR        ( Cfg.LatencyMode[0]     )
+// ) i_axi_mux (
+//   .clk_i,   // Clock
+//   .rst_ni,  // Asynchronous reset active low
+//   .test_i,  // Test Mode enable
+//   .slv_reqs_i  ( mst_reqs         ),
+//   .slv_resps_o ( mst_resps        ),
+//   .mst_req_o   ( mst_ports_req_o  ),
+//   .mst_resp_i  ( mst_ports_resp_i )
+// );
 
 
 // connection reqs and resps for non-shareable transactions with axi_mux
@@ -250,11 +263,11 @@ module ace_ccu_top_intf
   input  logic     test_i,
   SNOOP_BUS.Slave  snoop_ports [Cfg.NoSlvPorts-1:0],
   ACE_BUS.Slave    slv_ports   [Cfg.NoSlvPorts-1:0],
-  AXI_BUS.Master   mst_ports
+  AXI_BUS.Master   mst_ports   [Cfg.NoSlvPorts  :0]
 );
 
   localparam int unsigned AxiIdWidthMstPortsStage = Cfg.AxiIdWidthSlvPorts +$clog2(Cfg.NoSlvPorts);
-  localparam int unsigned AxiIdWidthMstPorts = AxiIdWidthMstPortsStage + $clog2(Cfg.NoSlvPorts+1);
+  localparam int unsigned AxiIdWidthMstPorts = AxiIdWidthMstPortsStage; // + $clog2(Cfg.NoSlvPorts+1);
 
   typedef logic [AxiIdWidthMstPortsStage-1:0] id_mst_stg_t;
   typedef logic [AxiIdWidthMstPorts     -1:0] id_mst_t;
@@ -291,18 +304,20 @@ module ace_ccu_top_intf
   `SNOOP_TYPEDEF_RESP_T(snoop_resp_t, snoop_cd_t, snoop_cr_t)
 
 
-  mst_ace_req_t                           mst_ace_reqs;
-  mst_ace_resp_t                          mst_ace_resps;
+  mst_ace_req_t     [Cfg.NoSlvPorts  :0]  mst_ace_reqs;
+  mst_ace_resp_t    [Cfg.NoSlvPorts  :0]  mst_ace_resps;
   slv_ace_req_t     [Cfg.NoSlvPorts-1:0]  slv_ace_reqs;
   slv_ace_resp_t    [Cfg.NoSlvPorts-1:0]  slv_ace_resps;
   snoop_req_t       [Cfg.NoSlvPorts-1:0]  snoop_reqs;
   snoop_resp_t      [Cfg.NoSlvPorts-1:0]  snoop_resps;
 
 
-  /// Assigning ACE request from CCU Mux to slave(RAM)
-  `AXI_ASSIGN_FROM_REQ(mst_ports, mst_ace_reqs)
-  /// Assigning AXI response from slave (RAM) to CCU mux which accepts only ACE type response
-  `ACE_ASSIGN_TO_RESP(mst_ace_resps, mst_ports)
+  for (genvar i = 0; i <= Cfg.NoSlvPorts; ++i) begin
+    /// Assigning ACE request from CCU Mux to slave(RAM)
+    `AXI_ASSIGN_FROM_REQ(mst_ports[i], mst_ace_reqs[i])
+    /// Assigning AXI response from slave (RAM) to CCU mux which accepts only ACE type response
+    `ACE_ASSIGN_TO_RESP(mst_ace_resps[i], mst_ports[i])
+  end
 
 
   for (genvar i = 0; i < Cfg.NoSlvPorts; i++) begin : gen_assign_slv

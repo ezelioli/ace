@@ -29,7 +29,7 @@ module tb_ace_ccu_top #(
   parameter bit TbEnExcl = 1'b0,            // enable exclusive accesses
   parameter bit TbUniqueIds = 1'b0,         // restrict to only unique IDs
   parameter int unsigned TbNumMst = 32'd4,  // how many AXI masters there are
-  parameter int unsigned TbNumSlv = 32'd1   // how many AXI slaves there are
+  parameter int unsigned TbNumSlv = TbNumMst + 1 // 32'd1   // how many AXI slaves there are
 );
   // Random master no Transactions
   localparam int unsigned NoWrites = 80;   // How many writes per master
@@ -42,7 +42,7 @@ module tb_ace_ccu_top #(
   // axi configuration
   localparam int unsigned AxiIdWidthMasters =  4;
   localparam int unsigned AxiIdUsed         =  3; // Has to be <= AxiIdWidthMasters
-  localparam int unsigned AxiIdWidthSlaves  =  AxiIdWidthMasters + $clog2(TbNumMst)+$clog2(TbNumMst+1);
+  localparam int unsigned AxiIdWidthSlaves  =  AxiIdWidthMasters + $clog2(TbNumMst); // +$clog2(TbNumMst+1);
   localparam int unsigned AxiAddrWidth      =  32;    // Axi Address Width
   localparam int unsigned AxiDataWidth      =  64;    // Axi Data Width
   localparam int unsigned AxiStrbWidth      =  AxiDataWidth / 8;
